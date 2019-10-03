@@ -231,6 +231,110 @@ impl<'a, 'tcx> Annotator<'a, 'tcx> {
             }
         }
     }
+
+    fn annotate_generic<F>(&mut self, hir_id: HirId, attrs: &[Attribute],
+                   item_sp: Span, kind: AnnotationKind, visit_children: F)
+        where F: FnOnce(&mut Self)
+    {
+        // eprintln!("annotate_generic");
+        if self.tcx.features().staged_api {
+            // eprintln!("staged_api annotate(id = {:?}, attrs = {:?})", hir_id, attrs);
+            // This crate explicitly wants staged API.
+            debug!("annotate(id = {:?}, attrs = {:?})", hir_id, attrs);
+            if let Some(..) = attr::find_deprecation(&self.tcx.sess.parse_sess, attrs, item_sp) {
+                self.tcx.sess.span_err(item_sp, "`#[deprecated]` cannot be used in staged API; \
+                                                 use `#[rustc_deprecated]` instead");
+            }
+            if let Some(stab) = attr::find_stability(&self.tcx.sess.parse_sess,
+                                                         attrs, item_sp) {
+                eprintln!("found stability {:?}", &stab);
+                // Error if prohibited, or can't inherit anything from a container.
+                if kind == AnnotationKind::Prohibited ||
+                   (kind == AnnotationKind::Container &&
+                    stab.level.is_stable() &&
+                    stab.rustc_depr.is_none()) {
+                    self.tcx.sess.span_err(item_sp, "This stability annotation is useless");
+                }
+
+                debug!("annotate: found {:?}", stab);
+
+                let stab = self.tcx.intern_stability(stab);
+
+                // Check if deprecated_since < stable_since. If it is,
+                // this is *almost surely* an accident.
+                if let (&Some(attr::RustcDeprecation {since: dep_since, ..}),
+                        &attr::Stable {since: stab_since}) = (&stab.rustc_depr, &stab.level) {
+                    // Explicit version of iter::order::lt to handle parse errors properly
+                    for (dep_v, stab_v) in dep_since.as_str()
+                                                    .split('.')
+                                                    .zip(stab_since.as_str().split('.'))
+                    {
+                        if let (Ok(dep_v), Ok(stab_v)) = (dep_v.parse::<u64>(), stab_v.parse()) {
+                            match dep_v.cmp(&stab_v) {
+                                Ordering::Less => {
+                                    self.tcx.sess.span_err(item_sp, "An API can't be stabilized \
+                                                                     after it is deprecated");
+                                    break
+                                }
+                                Ordering::Equal => continue,
+                                Ordering::Greater => break,
+                            }
+                        } else {
+                            // Act like it isn't less because the question is now nonsensical,
+                            // and this makes us not do anything else interesting.
+                            self.tcx.sess.span_err(item_sp, "Invalid stability or deprecation \
+                                                             version found");
+                            break
+                        }
+                    }
+                }
+
+                let def_id = self.tcx.hir().local_def_id(hir_id);
+                eprintln!("{:?}", def_id);
+                self.index.stab_map.insert(hir_id, stab);
+
+                let orig_parent_stab = replace(&mut self.parent_stab, Some(stab));
+                visit_children(self);
+                self.parent_stab = orig_parent_stab;
+            } else {
+                visit_children(self);
+            }
+        } else {
+            if !attrs.is_empty() {
+                eprintln!("NOT staged_api annotate(id = {:?}, attrs = {:?})", hir_id, attrs);
+            }
+            // Emit errors for non-staged-api crates.
+            for attr in attrs {
+                let name = attr.name_or_empty();
+                if [sym::unstable, sym::stable, sym::rustc_deprecated].contains(&name) {
+                    attr::mark_used(attr);
+                    struct_span_err!(
+                        self.tcx.sess,
+                        attr.span,
+                        E0734,
+                        "stability attributes may not be used outside of the standard library",
+                    ).emit();
+                }
+            }
+
+            if let Some(depr) = attr::find_deprecation(&self.tcx.sess.parse_sess, attrs, item_sp) {
+                if kind == AnnotationKind::Prohibited {
+                    self.tcx.sess.span_err(item_sp, "This deprecation annotation is useless");
+                }
+
+                // `Deprecation` is just two pointers, no need to intern it
+                let depr_entry = DeprecationEntry::local(depr, hir_id);
+                self.index.depr_map.insert(hir_id, depr_entry.clone());
+
+                let orig_parent_depr = replace(&mut self.parent_depr,
+                                               Some(depr_entry));
+                visit_children(self);
+                self.parent_depr = orig_parent_depr;
+            } else {
+                visit_children(self);
+            }
+        }
+    }
 }
 
 impl<'a, 'tcx> Visitor<'tcx> for Annotator<'a, 'tcx> {
@@ -313,6 +417,25 @@ impl<'a, 'tcx> Visitor<'tcx> for Annotator<'a, 'tcx> {
 
     fn visit_macro_def(&mut self, md: &'tcx hir::MacroDef) {
         self.annotate(md.hir_id, &md.attrs, md.span, AnnotationKind::Required, |_| {});
+    }
+
+    fn visit_generic_param(&mut self, gp: &'tcx hir::GenericParam) {
+        let kind = match &gp.kind {
+            hir::GenericParamKind::Lifetime {..} => AnnotationKind::Prohibited,
+            hir::GenericParamKind::Type {
+                default,
+                ..
+            } => if default.is_some() {
+                AnnotationKind::Required
+            } else {
+                AnnotationKind::Prohibited
+            },
+            // FIXME(const_generics:defaults)
+            hir::GenericParamKind::Const {..} => AnnotationKind::Prohibited,
+        };
+        self.annotate_generic(gp.hir_id, &gp.attrs, gp.span, kind, |v| {
+            intravisit::walk_generic_param(v, gp);
+        });
     }
 }
 
@@ -788,6 +911,29 @@ impl<'tcx> TyCtxt<'tcx> {
                 // The API could be uncallable for other reasons, for example when a private module
                 // was referenced.
                 self.sess.delay_span_bug(span, &format!("encountered unmarked API: {:?}", def_id));
+            }
+        }
+    }
+
+    /// Checks if an item is stable or error out.
+    ///
+    /// If the item defined by `def_id` is unstable and the corresponding `#![feature]` does not
+    /// exist, emits an error.
+    ///
+    /// Additionally, this function will also check if the item is deprecated. If so, and `id` is
+    /// not `None`, a deprecated lint attached to `id` will be emitted.
+    pub fn check_not_unstable(self, def_id: DefId, id: Option<HirId>, span: Span) {
+        let soft_handler =
+            |lint, span, msg: &_| self.lint_hir(lint, id.unwrap_or(hir::CRATE_HIR_ID), span, msg);
+        match self.eval_stability(def_id, id, span) {
+            EvalResult::Deny { feature, reason, issue, is_soft } =>
+                report_unstable(self.sess, feature, reason, issue, is_soft, span, soft_handler),
+            EvalResult::Allow => {
+                // eprintln!("ALLOW: {:?}", def_id)
+            }
+
+            EvalResult::Unmarked => {
+                // eprintln!("UNMARKED: {:?}", def_id)
             }
         }
     }

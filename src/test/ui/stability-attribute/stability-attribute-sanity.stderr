@@ -106,6 +106,12 @@ error[E0549]: rustc_deprecated attribute must be paired with either stable or un
 LL | fn deprecated_without_unstable_or_stable() { }
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-error: aborting due to 18 previous errors
+error: This stability annotation is useless
+  --> /home/host/Public/rust/src/test/ui/stability-attribute/stability-attribute-sanity.rs:76:9
+   |
+LL |         T> { //~ ERROR This stability annotation is useless
+   |         ^
+
+error: aborting due to 19 previous errors
 
 For more information about this error, try `rustc --explain E0541`.

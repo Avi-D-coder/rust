@@ -766,6 +766,9 @@ pub fn walk_param_bound<'v, V: Visitor<'v>>(visitor: &mut V, bound: &'v GenericB
 
 pub fn walk_generic_param<'v, V: Visitor<'v>>(visitor: &mut V, param: &'v GenericParam) {
     visitor.visit_id(param.hir_id);
+    if !param.attrs.is_empty() {
+        eprintln!("hir/intravisit::walk_generic_param::param.attrs: {:?}", &param.attrs);
+    }
     walk_list!(visitor, visit_attribute, &param.attrs);
     match param.name {
         ParamName::Plain(ident) => visitor.visit_ident(ident),

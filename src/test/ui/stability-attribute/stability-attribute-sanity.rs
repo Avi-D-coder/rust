@@ -70,4 +70,11 @@ pub const fn multiple4() { } //~ ERROR multiple rustc_deprecated attributes [E05
 fn deprecated_without_unstable_or_stable() { }
 //~^ ERROR rustc_deprecated attribute must be paired with either stable or unstable attribute
 
+#[stable(feature = "a", since = "b")]
+struct F<
+        #[unstable(feature = "a", issue = "0")]
+        T> { //~ ERROR This stability annotation is useless
+    f: T,
+}
+
 fn main() { }

@@ -29,7 +29,6 @@ use syntax::symbol::sym;
 use syntax_pos::{DUMMY_SP, Span, MultiSpan};
 use crate::util::common::ErrorReported;
 use crate::util::nodemap::FxHashMap;
-
 use std::collections::BTreeSet;
 use std::iter;
 use std::slice;
@@ -440,7 +439,7 @@ impl<'o, 'tcx> dyn AstConv<'tcx> + 'o {
             );
         }
         // Note that type errors are currently be emitted *after* const errors.
-        if !infer_args
+        let ret = if !infer_args
             || arg_counts.types > param_counts.types - defaults.types - has_self as usize {
             check_kind_count(
                 "type",
@@ -451,7 +450,8 @@ impl<'o, 'tcx> dyn AstConv<'tcx> + 'o {
             )
         } else {
             (reported_late_bound_region_err.unwrap_or(false), None)
-        }
+        };
+        ret
     }
 
     /// Creates the relevant generic argument substitutions
@@ -776,6 +776,18 @@ impl<'o, 'tcx> dyn AstConv<'tcx> + 'o {
 
         debug!("create_substs_for_ast_path(generic_params={:?}, self_ty={:?}) -> {:?}",
                generic_params, self_ty, substs);
+
+        for (param, arg) in generic_params.params.iter().zip(generic_args.args.iter()) {
+            match param.kind {
+                GenericParamDefKind::Type { has_default: true, .. } => {
+                    tcx.check_not_unstable(param.def_id, Some(arg.id()), arg.span());
+                }
+                GenericParamDefKind::Const => {
+                    // FIXME(const_generics:defaults)
+                }
+                _ => {}
+            };
+        }
 
         (substs, assoc_bindings, potential_assoc_types)
     }

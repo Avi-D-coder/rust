@@ -1,0 +1,3 @@
+    Finished dev [unoptimized] target(s) in 1.22s
+    Finished release [optimized + debuginfo] target(s) in 0.21s
+   Compiling rustc_driver v0.0.0 (/home/host/Public/rust/src/librustc_driver)

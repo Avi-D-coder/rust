@@ -2602,6 +2602,11 @@ impl<'a> LoweringContext<'a> {
         add_bounds: &NodeMap<Vec<GenericBound>>,
         mut itctx: ImplTraitContext<'_>,
     ) -> hir::HirVec<hir::GenericParam> {
+        for gp in params.iter() {
+            if !gp.attrs.is_empty() {
+                eprintln!("lower_generic_params::2607:: {:?}", gp.attrs);
+            }
+        }
         params.iter().map(|param| {
             self.lower_generic_param(param, add_bounds, itctx.reborrow())
         }).collect()
@@ -2612,6 +2617,7 @@ impl<'a> LoweringContext<'a> {
                            add_bounds: &NodeMap<Vec<GenericBound>>,
                            mut itctx: ImplTraitContext<'_>)
                            -> hir::GenericParam {
+        eprintln!("lower_generic_param::2620:: {:?}", param);
         let mut bounds = self.with_anonymous_lifetime_mode(
             AnonymousLifetimeMode::ReportError,
             |this| this.lower_param_bounds(&param.bounds, itctx.reborrow()),
@@ -2676,6 +2682,9 @@ impl<'a> LoweringContext<'a> {
             }
         };
 
+        if !param.attrs.is_empty() {
+            eprintln!("hir/lowering::2609::param.attrs:{:?}", &param.attrs);
+        }
         hir::GenericParam {
             hir_id: self.lower_node_id(param.id),
             name,

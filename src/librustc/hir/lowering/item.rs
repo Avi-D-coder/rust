@@ -1328,6 +1328,17 @@ impl LoweringContext<'_> {
         itctx: ImplTraitContext<'_>)
         -> hir::Generics
     {
+
+        for gp in generics.params.iter() {
+            if !gp.attrs.is_empty() {
+                eprintln!("lower_generics::1342:: {:?}", gp.attrs);
+            }
+        }
+        if std::env::var("RUST_BACKTRACE").is_ok() {
+            eprintln!("generics.params.len: {:?}", generics.params.len());
+            eprintln!("lower_generics::1342:: {:?}", generics.params);
+            panic!("LOOK at the backtrace")
+        }
         // Collect `?Trait` bounds in where clause and move them to parameter definitions.
         // FIXME: this could probably be done with less rightward drift. It also looks like two
         // control paths where `report_error` is called are the only paths that advance to after the
@@ -1380,7 +1391,11 @@ impl LoweringContext<'_> {
                 }
             }
         }
-
+        for gp in generics.params.iter() {
+            if !gp.attrs.is_empty() {
+                eprintln!("lower_generics::1392:: {:?}", gp.attrs);
+            }
+        }
         hir::Generics {
             params: self.lower_generic_params(&generics.params, &add_bounds, itctx),
             where_clause: self.lower_where_clause(&generics.where_clause),
