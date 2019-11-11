@@ -233,7 +233,9 @@ impl<'tcx> TyCtxt<'tcx> {
         // We want the type_id be independent of the types free regions, so we
         // erase them. The erase_regions() call will also anonymize bound
         // regions, which is desirable too.
+        eprintln!("ty: {:?}", ty);
         let ty = self.erase_regions(&ty);
+        eprintln!("erase_regions ty: {:?}", ty);
 
         hcx.while_hashing_spans(false, |hcx| {
             hcx.with_node_id_hashing_mode(NodeIdHashingMode::HashDefPath, |hcx| {
