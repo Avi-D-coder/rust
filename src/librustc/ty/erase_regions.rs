@@ -30,6 +30,20 @@ impl<'tcx> TyCtxt<'tcx> {
         debug!("erase_regions({:?}) = {:?}", value, value1);
         value1
     }
+
+    pub fn erase_regions_log<T>(self, value: &T) -> T
+        where T : TypeFoldable<'tcx>
+    {
+        // If there's nothing to erase avoid performing the query at all
+        if !value.has_type_flags(TypeFlags::HAS_RE_LATE_BOUND | TypeFlags::HAS_FREE_REGIONS) {
+            eprintln!("return early");
+            return value.clone();
+        }
+
+        let value1 = value.fold_with(&mut RegionEraserVisitor { tcx: self });
+        debug!("erase_regions({:?}) = {:?}", value, value1);
+        value1
+    }
 }
 
 struct RegionEraserVisitor<'tcx> {
