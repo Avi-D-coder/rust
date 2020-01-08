@@ -1,0 +1,17 @@
+name: Rust
+
+on: [push]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Install LLVM
+      run: sudo apt install llvm-7 llvm-7-dev llvm-7-tools
+    - name: Build
+      run: ./x.py build
+    - name: Run tests
+      run: export RUST_BACKTRACE=full && ./x.py test src/test/ui/stability-attribute/generics-default-stability.rs
